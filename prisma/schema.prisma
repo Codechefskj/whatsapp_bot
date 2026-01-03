@@ -10,7 +10,10 @@ datasource db {
 model WhatsAppMessage {
   id        String   @id @default(cuid())
   from      String
-  text      String?
-  messageId String
+  text      String   // Make it required, not nullable
+  messageId String   @unique
   createdAt DateTime @default(now())
+
+  @@index([from])
+  @@index([messageId])
 }
