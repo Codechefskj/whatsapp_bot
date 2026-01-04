@@ -1,35 +1,29 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import whatsappRoutes from './routes/whatsapp.routes';
+import { config } from './config';
 
 const app = express();
 
-/* ===================== CONFIG ===================== */
-const VERIFY_TOKEN = 'bestsecretkeytoverify';
-const PORT = process.env.PORT || 3001;
-
-/* ===================== MIDDLEWARES ===================== */
+/* ===== Middlewares ===== */
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use((req: Request, res: Response, next: NextFunction) => {
+app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log(`➡️ ${req.method} ${req.originalUrl}`);
   next();
 });
 
-/* ===================== META WEBHOOK VERIFICATION ===================== */
-/**
- * Meta ONLY uses this GET route to verify callback URL
- */
+/* ===== Meta Webhook Verification ===== */
 app.get('/whatsapp/webhook', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  console.log('🔐 Meta verification:', { mode, token, challenge });
+  console.log('🔐 Meta verification request');
 
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  if (mode === 'subscribe' && token === config.meta.webhookVerifyToken) {
     console.log('✅ Webhook verified');
     return res.status(200).send(challenge);
   }
@@ -38,14 +32,15 @@ app.get('/whatsapp/webhook', (req: Request, res: Response) => {
   return res.sendStatus(403);
 });
 
-/* ===================== BASIC ROUTES ===================== */
+/* ===== Basic Routes ===== */
 app.get('/', (_req: Request, res: Response) => {
   res.json({
     status: 'running',
-    message: 'WhatsApp Bot Server',
+    service: 'WhatsApp Bot',
     endpoints: {
-      health: '/health',
       webhook: '/whatsapp/webhook',
+      testDb: '/whatsapp/test-db',
+      health: '/health',
     },
   });
 });
@@ -54,15 +49,15 @@ app.get('/health', (_req: Request, res: Response) => {
   res.send('OK');
 });
 
-/* ===================== WHATSAPP ROUTES ===================== */
+/* ===== WhatsApp Routes ===== */
 app.use('/whatsapp', whatsappRoutes);
 
-/* ===================== 404 ===================== */
-app.use((req: Request, res: Response) => {
+/* ===== 404 ===== */
+app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not Found' });
 });
 
-/* ===================== START ===================== */
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+/* ===== Start Server ===== */
+app.listen(config.port, () => {
+  console.log(`🚀 Server running on port ${config.port}`);
 });
