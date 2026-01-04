@@ -9,9 +9,9 @@
     "url": "https://github.com/codermanoj2023/10-nodejs-typescript-project-with-tsup.git"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs",
+    "build": "tsup src/index.ts --format cjs --outDir dist",
     "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist",
-    "dev": "tsup src/index.ts --format cjs --watch --onSuccess \"node dist/index.js\"",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "tsc --noEmit && TIMING=1 eslint \"src/**/*.ts*\"",
     "start": "node dist/index.js",
     "test": "jest --detectOpenHandles"
@@ -21,15 +21,20 @@
   "license": "ISC",
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",
-    "@prisma/client": "^7.2.0",
+    "@prisma/client": "^6.19.1",
+    "axios": "^1.13.2",
+    "body-parser": "^2.2.1",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "prisma": "^6.19.1",
     "tsup": "^8.5.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^24.10.4",
-    "prisma": "^7.2.0",
+    "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
   }
 }
