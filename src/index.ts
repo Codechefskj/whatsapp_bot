@@ -22,8 +22,10 @@ app.get('/whatsapp/webhook', (req: Request, res: Response) => {
   const challenge = req.query['hub.challenge'];
 
   console.log('🔐 Meta verification request');
+  console.log({ mode, token, challenge });
 
-  if (mode === 'subscribe' && token === config.meta.webhookVerifyToken) {
+  // 🔴 HARD-CODE TOKEN
+  if (mode === 'subscribe' && token === 'bestsecretkeytoverify') {
     console.log('✅ Webhook verified');
     return res.status(200).send(challenge);
   }
@@ -31,6 +33,7 @@ app.get('/whatsapp/webhook', (req: Request, res: Response) => {
   console.log('❌ Verification failed');
   return res.sendStatus(403);
 });
+
 
 /* ===== Basic Routes ===== */
 app.get('/', (_req: Request, res: Response) => {
