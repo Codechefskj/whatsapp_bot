@@ -78,4 +78,18 @@ router.get('/test-db', async (_req: Request, res: Response) => {
   res.json({ count, messages });
 });
 
+/* ===== Inbox API ===== */
+router.get('/inbox', async (_req: Request, res: Response) => {
+  try {
+    const messages = await prisma.whatsAppMessage.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(messages);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch inbox' });
+  }
+});
+
+
 export default router;
