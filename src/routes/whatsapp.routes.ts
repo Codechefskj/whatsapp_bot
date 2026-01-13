@@ -1,95 +1,79 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
 const whatsappService = new WhatsAppService();
 
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
 console.log('✅ WhatsApp routes loaded');
 
-router.post('/webhook', async (req: Request, res: Response) => {
-  console.log('📩 WhatsApp webhook POST received');
-
-  // IMPORTANT: respond immediately
-  res.sendStatus(200);
-
+// NEW ROUTE - Add this
+router.post('/send-design', upload.single('image') as any, async (req: Request, res: Response) => {
   try {
-    const entry = req.body.entry?.[0];
-    const change = entry?.changes?.[0];
-    const message = change?.value?.messages?.[0];
+    console.log('🎨 Design approval request received');
+    
+    const { approver, recipientPhone } = req.body;
+    const imageBuffer = req.file?.buffer;
 
-    if (!message || !message.text) {
-      console.log('ℹ️ No user message (status / delivery event)');
-      return;
+    if (!imageBuffer) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No image provided' 
+      });
     }
 
-    const from = message.from;
-    const textBody = message.text.body;
-    const text = textBody.toLowerCase().trim();
-    const messageId = message.id;
+    if (!recipientPhone) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No recipient phone number provided' 
+      });
+    }
 
-    console.log(`📨 From: ${from} | Text: ${text}`);
+    console.log(`📤 Sending to: ${recipientPhone}`);
+    console.log(`👤 From: ${approver}`);
+    console.log(`📸 Image size: ${imageBuffer.length} bytes`);
 
-    // Save to DB
+    const result = await whatsappService.sendDesignApproval(
+      recipientPhone,
+      imageBuffer,
+      approver
+    );
+
     await prisma.whatsAppMessage.create({
       data: {
-        from,
-        text: textBody,
-        messageId,
+        from: 'system',
+        text: `Design sent by ${approver}`,
+        messageId: result.messageId,
       },
     });
 
-    // Bot replies
-    if (text === 'help') {
-      await whatsappService.sendTextMessage(
-        from,
-        '👋 Commands:\n• help\n• menu\n• create'
-      );
-    } else if (text === 'menu') {
-      await whatsappService.sendTextMessage(
-        from,
-        '📋 Menu:\n• create\n• approvals'
-      );
-    } else if (text === 'create') {
-      await whatsappService.sendTextMessage(
-        from,
-        '🎨 Choose format:\n• Story\n• Post\n• Banner'
-      );
-    } else {
-      await whatsappService.sendTextMessage(
-        from,
-        '🤖 Type "help" to see options'
-      );
-    }
-
-  } catch (error) {
-    console.error('❌ Webhook error:', error);
-  }
-});
-
-/* ===== Test DB ===== */
-router.get('/test-db', async (_req: Request, res: Response) => {
-  const count = await prisma.whatsAppMessage.count();
-  const messages = await prisma.whatsAppMessage.findMany({
-    take: 10,
-    orderBy: { createdAt: 'desc' },
-  });
-
-  res.json({ count, messages });
-});
-
-/* ===== Inbox API ===== */
-router.get('/inbox', async (_req: Request, res: Response) => {
-  try {
-    const messages = await prisma.whatsAppMessage.findMany({
-      orderBy: { createdAt: 'desc' },
+    res.json({
+      success: true,
+      mediaId: result.mediaId,
+      messageId: result.messageId,
+      message: 'Design sent successfully',
     });
 
-    res.json(messages);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch inbox' });
+  } catch (error: any) {
+    console.error('❌ Error sending design:', error);
+    res.status(500).json({
+      success: false,
+      error: error.response?.data?.error?.message || error.message || 'Failed to send design',
+    });
   }
 });
 
+// Your existing webhook route stays here
+router.post('/webhook', async (req: Request, res: Response) => {
+  // ... existing code ...
+});
+
+// Rest of your existing routes...
 
 export default router;
