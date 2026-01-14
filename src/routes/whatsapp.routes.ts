@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma';
 const router = Router();
 const whatsappService = new WhatsAppService();
 
+/* ===== Multer Setup ===== */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -14,30 +15,18 @@ const upload = multer({
 console.log('✅ WhatsApp routes loaded');
 
 /* =====================================================
-   SEND DESIGN (Frontend → WhatsApp)  ✅ UNCHANGED
+   SEND DESIGN (Frontend → WhatsApp)
 ===================================================== */
 router.post(
   '/send-design',
   upload.single('image') as any,
   async (req: Request, res: Response) => {
     try {
-      console.log('🎨 Design approval request received');
-
       const { approver, recipientPhone } = req.body;
       const imageBuffer = req.file?.buffer;
 
-      if (!imageBuffer) {
-        return res.status(400).json({
-          success: false,
-          error: 'No image provided',
-        });
-      }
-
-      if (!recipientPhone) {
-        return res.status(400).json({
-          success: false,
-          error: 'No recipient phone number provided',
-        });
+      if (!imageBuffer || !recipientPhone) {
+        return res.status(400).json({ success: false });
       }
 
       const result = await whatsappService.sendDesignApproval(
@@ -46,7 +35,6 @@ router.post(
         approver
       );
 
-      // Save SYSTEM message (already working)
       await prisma.whatsAppMessage.create({
         data: {
           from: 'system',
@@ -55,63 +43,50 @@ router.post(
         },
       });
 
-      res.json({
-        success: true,
-        mediaId: result.mediaId,
-        messageId: result.messageId,
-      });
-    } catch (error: any) {
-      console.error('❌ Error sending design:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || 'Failed to send design',
-      });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Send failed' });
     }
   }
 );
 
 /* =====================================================
-   WEBHOOK (WhatsApp → Backend → DB)  ✅ NEW LOGIC
+   WEBHOOK (WhatsApp → DB)
 ===================================================== */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
-    console.log('📩 Incoming webhook');
-
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
-    const value = change?.value;
-    const message = value?.messages?.[0];
+    const message = change?.value?.messages?.[0];
 
-    // Ignore delivery/read status updates
-    if (!message) {
-      return res.sendStatus(200);
-    }
+    if (!message) return res.sendStatus(200);
 
-    const from = message.from;
-    const messageId = message.id;
-
-    let text = '[unsupported message]';
-
-    if (message.type === 'text') {
-      text = message.text.body;
-    } else if (message.type === 'image') {
-      text = message.image.caption || '[image]';
-    }
+    let text = '[unsupported]';
+    if (message.type === 'text') text = message.text.body;
+    if (message.type === 'image') text = message.image.caption || '[image]';
 
     await prisma.whatsAppMessage.create({
       data: {
-        from,
+        from: message.from,
         text,
-        messageId,
+        messageId: message.id,
       },
     });
 
-    console.log('✅ Incoming WhatsApp message saved to DB');
     res.sendStatus(200);
-  } catch (error) {
-    console.error('❌ Webhook DB error:', error);
+  } catch {
     res.sendStatus(500);
   }
+});
+
+/* =====================================================
+   INBOX (Frontend → DB)
+===================================================== */
+router.get('/inbox', async (_req: Request, res: Response) => {
+  const messages = await prisma.whatsAppMessage.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(messages);
 });
 
 export default router;

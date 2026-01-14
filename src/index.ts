@@ -15,39 +15,29 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
+/* ===== HARD DEBUG ROUTE (CRITICAL) ===== */
+app.get('/__debug', (_req: Request, res: Response) => {
+  res.json({
+    ok: true,
+    message: 'DEBUG ROUTE IS ACTIVE',
+    time: new Date().toISOString(),
+  });
+});
+
 /* ===== Meta Webhook Verification ===== */
 app.get('/whatsapp/webhook', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  console.log('🔐 Meta verification request');
-  console.log({ mode, token, challenge });
-
-  // 🔴 HARD-CODE TOKEN
   if (mode === 'subscribe' && token === 'bestsecretkeytoverify') {
-    console.log('✅ Webhook verified');
     return res.status(200).send(challenge);
   }
 
-  console.log('❌ Verification failed');
   return res.sendStatus(403);
 });
 
-
-/* ===== Basic Routes ===== */
-app.get('/', (_req: Request, res: Response) => {
-  res.json({
-    status: 'running',
-    service: 'WhatsApp Bot',
-    endpoints: {
-      webhook: '/whatsapp/webhook',
-      testDb: '/whatsapp/test-db',
-      health: '/health',
-    },
-  });
-});
-
+/* ===== Health Check ===== */
 app.get('/health', (_req: Request, res: Response) => {
   res.send('OK');
 });
@@ -55,7 +45,7 @@ app.get('/health', (_req: Request, res: Response) => {
 /* ===== WhatsApp Routes ===== */
 app.use('/whatsapp', whatsappRoutes);
 
-/* ===== 404 ===== */
+/* ===== 404 (MUST BE LAST) ===== */
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not Found' });
 });
