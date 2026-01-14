@@ -6,74 +6,112 @@ import { prisma } from '../lib/prisma';
 const router = Router();
 const whatsappService = new WhatsAppService();
 
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
 console.log('✅ WhatsApp routes loaded');
 
-// NEW ROUTE - Add this
-router.post('/send-design', upload.single('image') as any, async (req: Request, res: Response) => {
+/* =====================================================
+   SEND DESIGN (Frontend → WhatsApp)  ✅ UNCHANGED
+===================================================== */
+router.post(
+  '/send-design',
+  upload.single('image') as any,
+  async (req: Request, res: Response) => {
+    try {
+      console.log('🎨 Design approval request received');
+
+      const { approver, recipientPhone } = req.body;
+      const imageBuffer = req.file?.buffer;
+
+      if (!imageBuffer) {
+        return res.status(400).json({
+          success: false,
+          error: 'No image provided',
+        });
+      }
+
+      if (!recipientPhone) {
+        return res.status(400).json({
+          success: false,
+          error: 'No recipient phone number provided',
+        });
+      }
+
+      const result = await whatsappService.sendDesignApproval(
+        recipientPhone,
+        imageBuffer,
+        approver
+      );
+
+      // Save SYSTEM message (already working)
+      await prisma.whatsAppMessage.create({
+        data: {
+          from: 'system',
+          text: `Design sent by ${approver}`,
+          messageId: result.messageId,
+        },
+      });
+
+      res.json({
+        success: true,
+        mediaId: result.mediaId,
+        messageId: result.messageId,
+      });
+    } catch (error: any) {
+      console.error('❌ Error sending design:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to send design',
+      });
+    }
+  }
+);
+
+/* =====================================================
+   WEBHOOK (WhatsApp → Backend → DB)  ✅ NEW LOGIC
+===================================================== */
+router.post('/webhook', async (req: Request, res: Response) => {
   try {
-    console.log('🎨 Design approval request received');
-    
-    const { approver, recipientPhone } = req.body;
-    const imageBuffer = req.file?.buffer;
+    console.log('📩 Incoming webhook');
 
-    if (!imageBuffer) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'No image provided' 
-      });
+    const entry = req.body.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value;
+    const message = value?.messages?.[0];
+
+    // Ignore delivery/read status updates
+    if (!message) {
+      return res.sendStatus(200);
     }
 
-    if (!recipientPhone) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'No recipient phone number provided' 
-      });
+    const from = message.from;
+    const messageId = message.id;
+
+    let text = '[unsupported message]';
+
+    if (message.type === 'text') {
+      text = message.text.body;
+    } else if (message.type === 'image') {
+      text = message.image.caption || '[image]';
     }
-
-    console.log(`📤 Sending to: ${recipientPhone}`);
-    console.log(`👤 From: ${approver}`);
-    console.log(`📸 Image size: ${imageBuffer.length} bytes`);
-
-    const result = await whatsappService.sendDesignApproval(
-      recipientPhone,
-      imageBuffer,
-      approver
-    );
 
     await prisma.whatsAppMessage.create({
       data: {
-        from: 'system',
-        text: `Design sent by ${approver}`,
-        messageId: result.messageId,
+        from,
+        text,
+        messageId,
       },
     });
 
-    res.json({
-      success: true,
-      mediaId: result.mediaId,
-      messageId: result.messageId,
-      message: 'Design sent successfully',
-    });
-
-  } catch (error: any) {
-    console.error('❌ Error sending design:', error);
-    res.status(500).json({
-      success: false,
-      error: error.response?.data?.error?.message || error.message || 'Failed to send design',
-    });
+    console.log('✅ Incoming WhatsApp message saved to DB');
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('❌ Webhook DB error:', error);
+    res.sendStatus(500);
   }
 });
-
-// Your existing webhook route stays here
-router.post('/webhook', async (req: Request, res: Response) => {
-  // ... existing code ...
-});
-
-// Rest of your existing routes...
 
 export default router;
