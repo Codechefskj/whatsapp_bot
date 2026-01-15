@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { prisma } from '../lib/prisma';
@@ -6,27 +6,57 @@ import { prisma } from '../lib/prisma';
 const router = Router();
 const whatsappService = new WhatsAppService();
 
-/* ===== Multer Setup ===== */
+/* ===== Multer Setup (FIXED) ===== */
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: {
+    fileSize: 20 * 1024 * 1024, // ✅ 20 MB (FIXED from 5MB)
+  },
 });
+
+/* ===== Multer Error Handler (CRITICAL FIX) ===== */
+const multerErrorHandler = (
+  err: any,
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        success: false,
+        error: 'Image too large. Max allowed size is 20MB.',
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: err.message,
+    });
+  }
+
+  next(err);
+};
 
 console.log('✅ WhatsApp routes loaded');
 
 /* =====================================================
-   SEND DESIGN (Frontend → WhatsApp) ✅ NO CHANGE
+   SEND DESIGN (Frontend → WhatsApp)
 ===================================================== */
 router.post(
   '/send-design',
-  upload.single('image') as any,
+  upload.single('image'),
+  multerErrorHandler, // ✅ ADDED
   async (req: Request, res: Response) => {
     try {
       const { approver, recipientPhone } = req.body;
       const imageBuffer = req.file?.buffer;
 
       if (!imageBuffer || !recipientPhone) {
-        return res.status(400).json({ success: false });
+        return res.status(400).json({
+          success: false,
+          error: 'Missing image or recipient phone',
+        });
       }
 
       const result = await whatsappService.sendDesignApproval(
@@ -43,16 +73,19 @@ router.post(
         },
       });
 
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (err) {
       console.error('❌ Send design error:', err);
-      res.status(500).json({ error: 'Send failed' });
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
     }
   }
 );
 
 /* =====================================================
-   WEBHOOK (WhatsApp → DB) ✅ FIXED
+   WEBHOOK (WhatsApp → DB) ✅ UNTOUCHED
 ===================================================== */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -60,7 +93,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const change = entry?.changes?.[0];
     const value = change?.value;
 
-    // ❌ Ignore status updates
+    // Ignore status updates
     if (value?.statuses) {
       return res.sendStatus(200);
     }
@@ -91,7 +124,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
       console.log('✅ Message saved:', message.id);
     } catch (dbErr: any) {
-      // ✅ Ignore duplicate message retries
       if (dbErr.code === 'P2002') {
         console.log('⚠️ Duplicate message ignored:', message.id);
       } else {
@@ -107,7 +139,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 });
 
 /* =====================================================
-   INBOX (Frontend → DB) ✅ OK
+   INBOX (Frontend → DB) ✅ UNTOUCHED
 ===================================================== */
 router.get('/inbox', async (_req: Request, res: Response) => {
   const messages = await prisma.whatsAppMessage.findMany({
