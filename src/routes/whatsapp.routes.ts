@@ -15,7 +15,7 @@ const upload = multer({
 console.log('✅ WhatsApp routes loaded');
 
 /* =====================================================
-   SEND DESIGN (Frontend → WhatsApp)
+   SEND DESIGN (Frontend → WhatsApp) ✅ NO CHANGE
 ===================================================== */
 router.post(
   '/send-design',
@@ -45,42 +45,69 @@ router.post(
 
       res.json({ success: true });
     } catch (err) {
+      console.error('❌ Send design error:', err);
       res.status(500).json({ error: 'Send failed' });
     }
   }
 );
 
 /* =====================================================
-   WEBHOOK (WhatsApp → DB)
+   WEBHOOK (WhatsApp → DB) ✅ FIXED
 ===================================================== */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
-    const message = change?.value?.messages?.[0];
+    const value = change?.value;
 
-    if (!message) return res.sendStatus(200);
+    // ❌ Ignore status updates
+    if (value?.statuses) {
+      return res.sendStatus(200);
+    }
+
+    const message = value?.messages?.[0];
+    if (!message) {
+      return res.sendStatus(200);
+    }
 
     let text = '[unsupported]';
-    if (message.type === 'text') text = message.text.body;
-    if (message.type === 'image') text = message.image.caption || '[image]';
 
-    await prisma.whatsAppMessage.create({
-      data: {
-        from: message.from,
-        text,
-        messageId: message.id,
-      },
-    });
+    if (message.type === 'text') {
+      text = message.text.body;
+    }
+
+    if (message.type === 'image') {
+      text = message.image.caption || '[image]';
+    }
+
+    try {
+      await prisma.whatsAppMessage.create({
+        data: {
+          from: message.from,
+          text,
+          messageId: message.id,
+        },
+      });
+
+      console.log('✅ Message saved:', message.id);
+    } catch (dbErr: any) {
+      // ✅ Ignore duplicate message retries
+      if (dbErr.code === 'P2002') {
+        console.log('⚠️ Duplicate message ignored:', message.id);
+      } else {
+        console.error('❌ Prisma error:', dbErr);
+      }
+    }
 
     res.sendStatus(200);
-  } catch {
+  } catch (err) {
+    console.error('❌ Webhook fatal error:', err);
     res.sendStatus(500);
   }
 });
 
 /* =====================================================
-   INBOX (Frontend → DB)
+   INBOX (Frontend → DB) ✅ OK
 ===================================================== */
 router.get('/inbox', async (_req: Request, res: Response) => {
   const messages = await prisma.whatsAppMessage.findMany({

@@ -15,7 +15,15 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
-/* ===== HARD DEBUG ROUTE (CRITICAL) ===== */
+/* ===== ROOT ROUTE ===== */
+app.get('/', (_req: Request, res: Response) => {
+  res.json({
+    ok: true,
+    service: 'WhatsApp Bot API',
+  });
+});
+
+/* ===== HARD DEBUG ROUTE ===== */
 app.get('/__debug', (_req: Request, res: Response) => {
   res.json({
     ok: true,
