@@ -75,51 +75,7 @@ export class WhatsAppService {
     return response.data;
   }
 
-  /* ================= APPROVAL BUTTONS (NEW) ================= */
-  async sendApprovalButtons(to: string) {
-    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
-
-    await axios.post(
-      url,
-      {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: {
-            text: 'Please approve or reject this design 👇',
-          },
-          action: {
-            buttons: [
-              {
-                type: 'reply',
-                reply: {
-                  id: 'APPROVE_DESIGN',
-                  title: '✅ Approve',
-                },
-              },
-              {
-                type: 'reply',
-                reply: {
-                  id: 'REJECT_DESIGN',
-                  title: '❌ Reject',
-                },
-              },
-            ],
-          },
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${config.meta.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-  }
-
-  /* ================= SEND DESIGN (UNCHANGED + BUTTONS) ================= */
+  /* ================= SEND DESIGN (STABLE & SAFE) ================= */
   async sendDesignApproval(
     to: string,
     imageBuffer: Buffer,
@@ -138,16 +94,14 @@ From: ${approverName}
 Please review and approve this design.
 
 Reply:
-✅ "approve" to accept
-❌ "reject" to decline`;
+✅ approve
+❌ reject`;
 
       console.log('📨 Sending image...');
       const result = await this.sendImageMessage(to, mediaId, caption);
 
-      // ✅ NEW: Send buttons AFTER image
-      await this.sendApprovalButtons(to);
+      console.log('✅ Design sent successfully');
 
-      console.log('✅ Image + buttons sent');
       return {
         success: true,
         mediaId,
