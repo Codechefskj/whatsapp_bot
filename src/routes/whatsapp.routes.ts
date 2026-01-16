@@ -6,15 +6,15 @@ import { prisma } from '../lib/prisma';
 const router = Router();
 const whatsappService = new WhatsAppService();
 
-/* ===== Multer Setup (FIXED) ===== */
+/* ================= MULTER SETUP ================= */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 20 * 1024 * 1024, // ✅ 20 MB (FIXED from 5MB)
+    fileSize: 20 * 1024 * 1024, // 20MB
   },
 });
 
-/* ===== Multer Error Handler (CRITICAL FIX) ===== */
+/* ================= MULTER ERROR HANDLER ================= */
 const multerErrorHandler = (
   err: any,
   _req: Request,
@@ -25,7 +25,7 @@ const multerErrorHandler = (
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         success: false,
-        error: 'Image too large. Max allowed size is 20MB.',
+        error: 'Image too large. Max 20MB allowed.',
       });
     }
 
@@ -46,7 +46,7 @@ console.log('✅ WhatsApp routes loaded');
 router.post(
   '/send-design',
   upload.single('image'),
-  multerErrorHandler, // ✅ ADDED
+  multerErrorHandler,
   async (req: Request, res: Response) => {
     try {
       const { approver, recipientPhone } = req.body;
@@ -85,7 +85,7 @@ router.post(
 );
 
 /* =====================================================
-   WEBHOOK (WhatsApp → DB) ✅ UNTOUCHED
+   WEBHOOK (WhatsApp → DB + BUTTON HANDLING)
 ===================================================== */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -93,7 +93,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const change = entry?.changes?.[0];
     const value = change?.value;
 
-    // Ignore status updates
+    // Ignore delivery/read statuses
     if (value?.statuses) {
       return res.sendStatus(200);
     }
@@ -103,6 +103,22 @@ router.post('/webhook', async (req: Request, res: Response) => {
       return res.sendStatus(200);
     }
 
+    /* ===== BUTTON CLICK HANDLING ===== */
+    if (message.type === 'interactive') {
+      const actionId = message.interactive.button_reply.id;
+
+      if (actionId === 'APPROVE_DESIGN') {
+        console.log('✅ Design APPROVED by:', message.from);
+      }
+
+      if (actionId === 'REJECT_DESIGN') {
+        console.log('❌ Design REJECTED by:', message.from);
+      }
+
+      return res.sendStatus(200);
+    }
+
+    /* ===== NORMAL TEXT / IMAGE ===== */
     let text = '[unsupported]';
 
     if (message.type === 'text') {
@@ -121,11 +137,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
           messageId: message.id,
         },
       });
-
-      console.log('✅ Message saved:', message.id);
     } catch (dbErr: any) {
       if (dbErr.code === 'P2002') {
-        console.log('⚠️ Duplicate message ignored:', message.id);
+        console.log('⚠️ Duplicate ignored:', message.id);
       } else {
         console.error('❌ Prisma error:', dbErr);
       }
@@ -139,12 +153,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
 });
 
 /* =====================================================
-   INBOX (Frontend → DB) ✅ UNTOUCHED
+   INBOX (Frontend → DB)
 ===================================================== */
 router.get('/inbox', async (_req: Request, res: Response) => {
   const messages = await prisma.whatsAppMessage.findMany({
     orderBy: { createdAt: 'desc' },
   });
+
   res.json(messages);
 });
 
