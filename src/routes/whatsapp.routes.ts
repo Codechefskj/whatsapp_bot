@@ -10,15 +10,11 @@ const whatsappService = new WhatsAppService();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 20 * 1024 * 1024, // ✅ 20 MB (FIXED from 5MB)
+    fileSize: 20 * 1024 * 1024, // 20MB
   },
 });
 
-<<<<<<< Updated upstream
-/* ===== Multer Error Handler (CRITICAL FIX) ===== */
-=======
 /* ===== Multer Error Handler ===== */
->>>>>>> Stashed changes
 const multerErrorHandler = (
   err: any,
   _req: Request,
@@ -29,11 +25,7 @@ const multerErrorHandler = (
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         success: false,
-<<<<<<< Updated upstream
-        error: 'Image too large. Max allowed size is 20MB.',
-=======
         error: 'Image too large (max 20MB)',
->>>>>>> Stashed changes
       });
     }
     return res.status(400).json({ success: false, error: err.message });
@@ -47,7 +39,7 @@ const multerErrorHandler = (
 router.post(
   '/send-design',
   upload.single('image'),
-  multerErrorHandler, // ✅ ADDED
+  multerErrorHandler,
   async (req: Request, res: Response) => {
     try {
       const { approver, recipientPhone } = req.body;
@@ -86,11 +78,7 @@ router.post(
 );
 
 /* =====================================================
-<<<<<<< Updated upstream
-   WEBHOOK (WhatsApp → DB) ✅ UNTOUCHED
-=======
    WEBHOOK (WhatsApp → DB)
->>>>>>> Stashed changes
 ===================================================== */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -98,14 +86,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const change = entry?.changes?.[0];
     const value = change?.value;
 
-<<<<<<< Updated upstream
-    // Ignore status updates
-    if (value?.statuses) {
-      return res.sendStatus(200);
-    }
-=======
     if (value?.statuses) return res.sendStatus(200);
->>>>>>> Stashed changes
 
     const message = value?.messages?.[0];
     if (!message) return res.sendStatus(200);
@@ -123,16 +104,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
           messageId: message.id,
         },
       });
-
-      console.log('✅ Message saved:', message.id);
     } catch (dbErr: any) {
-<<<<<<< Updated upstream
-      if (dbErr.code === 'P2002') {
-        console.log('⚠️ Duplicate message ignored:', message.id);
-      } else {
-=======
       if (dbErr.code !== 'P2002') {
->>>>>>> Stashed changes
         console.error('❌ Prisma error:', dbErr);
       }
     }
@@ -145,7 +118,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 });
 
 /* =====================================================
-   INBOX (Frontend → DB) ✅ UNTOUCHED
+   INBOX (Frontend → DB)
 ===================================================== */
 router.get('/inbox', async (_req: Request, res: Response) => {
   const messages = await prisma.whatsAppMessage.findMany({

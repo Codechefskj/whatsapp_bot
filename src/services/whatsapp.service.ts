@@ -5,6 +5,7 @@ import { config } from '../config';
 export class WhatsAppService {
   private baseUrl = 'https://graph.facebook.com/v21.0';
 
+  /* ================= TEXT MESSAGE ================= */
   async sendTextMessage(to: string, text: string) {
     const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
 
@@ -27,6 +28,7 @@ export class WhatsAppService {
     return response.data;
   }
 
+  /* ================= UPLOAD MEDIA ================= */
   async uploadMedia(imageBuffer: Buffer, filename: string = 'design.png') {
     const url = `${this.baseUrl}/${config.meta.phoneNumberId}/media`;
 
@@ -48,6 +50,7 @@ export class WhatsAppService {
     return response.data.id;
   }
 
+  /* ================= SEND IMAGE ================= */
   async sendImageMessage(to: string, mediaId: string, caption?: string) {
     const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
 
@@ -55,9 +58,7 @@ export class WhatsAppService {
       messaging_product: 'whatsapp',
       to,
       type: 'image',
-      image: {
-        id: mediaId,
-      },
+      image: { id: mediaId },
     };
 
     if (caption) {
@@ -74,23 +75,6 @@ export class WhatsAppService {
     return response.data;
   }
 
-<<<<<<< Updated upstream
-  async sendDesignApproval(to: string, imageBuffer: Buffer, approverName: string) {
-    try {
-      console.log('📤 Uploading image to WhatsApp...');
-      const mediaId = await this.uploadMedia(imageBuffer);
-      
-      console.log('✅ Media uploaded, ID:', mediaId);
-      
-      const caption = `🎨 Design Approval Request\n\nFrom: ${approverName}\n\nPlease review and approve this design.\n\nReply:\n✅ "approve" to accept\n❌ "reject" to decline`;
-      
-      console.log('📨 Sending message...');
-      const result = await this.sendImageMessage(to, mediaId, caption);
-      
-      console.log('✅ Message sent successfully');
-      return { success: true, mediaId, messageId: result.messages[0].id };
-      
-=======
   /* ================= SEND DESIGN (STABLE & SAFE) ================= */
   async sendDesignApproval(
     to: string,
@@ -123,9 +107,11 @@ Reply:
         mediaId,
         messageId: result.messages[0].id,
       };
->>>>>>> Stashed changes
     } catch (error: any) {
-      console.error('❌ Failed to send design:', error.response?.data || error.message);
+      console.error(
+        '❌ Failed to send design:',
+        error.response?.data || error.message
+      );
       throw error;
     }
   }
