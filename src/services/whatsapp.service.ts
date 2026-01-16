@@ -74,6 +74,7 @@ export class WhatsAppService {
     return response.data;
   }
 
+<<<<<<< Updated upstream
   async sendDesignApproval(to: string, imageBuffer: Buffer, approverName: string) {
     try {
       console.log('📤 Uploading image to WhatsApp...');
@@ -89,6 +90,40 @@ export class WhatsAppService {
       console.log('✅ Message sent successfully');
       return { success: true, mediaId, messageId: result.messages[0].id };
       
+=======
+  /* ================= SEND DESIGN (STABLE & SAFE) ================= */
+  async sendDesignApproval(
+    to: string,
+    imageBuffer: Buffer,
+    approverName: string
+  ) {
+    try {
+      console.log('📤 Uploading image to WhatsApp...');
+      const mediaId = await this.uploadMedia(imageBuffer);
+
+      console.log('✅ Media uploaded:', mediaId);
+
+      const caption = `🎨 Design Approval Request
+
+From: ${approverName}
+
+Please review and approve this design.
+
+Reply:
+✅ approve
+❌ reject`;
+
+      console.log('📨 Sending image...');
+      const result = await this.sendImageMessage(to, mediaId, caption);
+
+      console.log('✅ Design sent successfully');
+
+      return {
+        success: true,
+        mediaId,
+        messageId: result.messages[0].id,
+      };
+>>>>>>> Stashed changes
     } catch (error: any) {
       console.error('❌ Failed to send design:', error.response?.data || error.message);
       throw error;

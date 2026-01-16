@@ -14,7 +14,11 @@ const upload = multer({
   },
 });
 
+<<<<<<< Updated upstream
 /* ===== Multer Error Handler (CRITICAL FIX) ===== */
+=======
+/* ===== Multer Error Handler ===== */
+>>>>>>> Stashed changes
 const multerErrorHandler = (
   err: any,
   _req: Request,
@@ -25,20 +29,17 @@ const multerErrorHandler = (
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         success: false,
+<<<<<<< Updated upstream
         error: 'Image too large. Max allowed size is 20MB.',
+=======
+        error: 'Image too large (max 20MB)',
+>>>>>>> Stashed changes
       });
     }
-
-    return res.status(400).json({
-      success: false,
-      error: err.message,
-    });
+    return res.status(400).json({ success: false, error: err.message });
   }
-
   next(err);
 };
-
-console.log('✅ WhatsApp routes loaded');
 
 /* =====================================================
    SEND DESIGN (Frontend → WhatsApp)
@@ -85,7 +86,11 @@ router.post(
 );
 
 /* =====================================================
+<<<<<<< Updated upstream
    WEBHOOK (WhatsApp → DB) ✅ UNTOUCHED
+=======
+   WEBHOOK (WhatsApp → DB)
+>>>>>>> Stashed changes
 ===================================================== */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -93,25 +98,22 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const change = entry?.changes?.[0];
     const value = change?.value;
 
+<<<<<<< Updated upstream
     // Ignore status updates
     if (value?.statuses) {
       return res.sendStatus(200);
     }
+=======
+    if (value?.statuses) return res.sendStatus(200);
+>>>>>>> Stashed changes
 
     const message = value?.messages?.[0];
-    if (!message) {
-      return res.sendStatus(200);
-    }
+    if (!message) return res.sendStatus(200);
 
     let text = '[unsupported]';
 
-    if (message.type === 'text') {
-      text = message.text.body;
-    }
-
-    if (message.type === 'image') {
-      text = message.image.caption || '[image]';
-    }
+    if (message.type === 'text') text = message.text.body;
+    if (message.type === 'image') text = message.image.caption || '[image]';
 
     try {
       await prisma.whatsAppMessage.create({
@@ -124,16 +126,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
       console.log('✅ Message saved:', message.id);
     } catch (dbErr: any) {
+<<<<<<< Updated upstream
       if (dbErr.code === 'P2002') {
         console.log('⚠️ Duplicate message ignored:', message.id);
       } else {
+=======
+      if (dbErr.code !== 'P2002') {
+>>>>>>> Stashed changes
         console.error('❌ Prisma error:', dbErr);
       }
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Webhook fatal error:', err);
+    console.error('❌ Webhook error:', err);
     res.sendStatus(500);
   }
 });
