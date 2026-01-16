@@ -1,15 +1,14 @@
-import axios from 'axios'
-import FormData from 'form-data'
-import { config } from '../config'
+import axios from 'axios';
+import FormData from 'form-data';
+import { config } from '../config';
 
 export class WhatsAppService {
-  private baseUrl = 'https://graph.facebook.com/v21.0'
+  private baseUrl = 'https://graph.facebook.com/v21.0';
 
-  /* ================= SEND TEXT ================= */
   async sendTextMessage(to: string, text: string) {
-    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`
+    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
 
-    const res = await axios.post(
+    const response = await axios.post(
       url,
       {
         messaging_product: 'whatsapp',
@@ -23,94 +22,76 @@ export class WhatsAppService {
           'Content-Type': 'application/json',
         },
       }
-    )
+    );
 
-    return res.data
+    return response.data;
   }
 
-  /* ================= UPLOAD IMAGE ================= */
-  async uploadMedia(imageBuffer: Buffer) {
-    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/media`
+  async uploadMedia(imageBuffer: Buffer, filename: string = 'design.png') {
+    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/media`;
 
-    const formData = new FormData()
+    const formData = new FormData();
     formData.append('file', imageBuffer, {
-      filename: 'design.png',
+      filename,
       contentType: 'image/png',
-    })
-    formData.append('type', 'image/png')
-    formData.append('messaging_product', 'whatsapp')
+    });
+    formData.append('type', 'image/png');
+    formData.append('messaging_product', 'whatsapp');
 
-    const res = await axios.post(url, formData, {
+    const response = await axios.post(url, formData, {
       headers: {
         Authorization: `Bearer ${config.meta.accessToken}`,
         ...formData.getHeaders(),
       },
-    })
+    });
 
-    return res.data.id
+    return response.data.id;
   }
 
-  /* ================= SEND IMAGE ================= */
-  async sendImageMessage(
-    to: string,
-    mediaId: string,
-    caption: string
-  ) {
-    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`
+  async sendImageMessage(to: string, mediaId: string, caption?: string) {
+    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
 
-    const res = await axios.post(
-      url,
-      {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'image',
-        image: {
-          id: mediaId,
-          caption,
-        },
+    const payload: any = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'image',
+      image: {
+        id: mediaId,
       },
-      {
-        headers: {
-          Authorization: `Bearer ${config.meta.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    )
+    };
 
-    return res.data
+    if (caption) {
+      payload.image.caption = caption;
+    }
+
+    const response = await axios.post(url, payload, {
+      headers: {
+        Authorization: `Bearer ${config.meta.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    return response.data;
   }
 
-  /* ================= MAIN FLOW ================= */
-  async sendDesignApproval(
-    to: string,
-    imageBuffer: Buffer,
-    approverName: string
-  ) {
+  async sendDesignApproval(to: string, imageBuffer: Buffer, approverName: string) {
     try {
-      console.log('📤 Uploading image...')
-      const mediaId = await this.uploadMedia(imageBuffer)
-
-      const caption = `🎨 Design Approval Request
-
-From: ${approverName}
-
-Please review this design.
-
-Reply with:
-approve  ✅
-reject   ❌`
-
-      console.log('📨 Sending image...')
-      const result = await this.sendImageMessage(to, mediaId, caption)
-
-      return {
-        success: true,
-        mediaId,
-        messageId: result.messages[0].id,
-      }
-    } catch (err: any) {
-      console.error('❌ WhatsApp send failed:', err.response?.data || err.message)
-      throw err
+      console.log('📤 Uploading image to WhatsApp...');
+      const mediaId = await this.uploadMedia(imageBuffer);
+      
+      console.log('✅ Media uploaded, ID:', mediaId);
+      
+      const caption = `🎨 Design Approval Request\n\nFrom: ${approverName}\n\nPlease review and approve this design.\n\nReply:\n✅ "approve" to accept\n❌ "reject" to decline`;
+      
+      console.log('📨 Sending message...');
+      const result = await this.sendImageMessage(to, mediaId, caption);
+      
+      console.log('✅ Message sent successfully');
+      return { success: true, mediaId, messageId: result.messages[0].id };
+      
+    } catch (error: any) {
+      console.error('❌ Failed to send design:', error.response?.data || error.message);
+      throw error;
     }
   }
 }
