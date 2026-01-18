@@ -6,15 +6,14 @@ import { prisma } from '../lib/prisma';
 const router = Router();
 const whatsappService = new WhatsAppService();
 
-/* ===== Multer Setup (FIXED) ===== */
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 20 * 1024 * 1024, // ✅ 20 MB (FIXED from 5MB)
+    fileSize: 20 * 1024 * 1024, 
   },
 });
 
-/* ===== Multer Error Handler (CRITICAL FIX) ===== */
 const multerErrorHandler = (
   err: any,
   _req: Request,
@@ -38,15 +37,15 @@ const multerErrorHandler = (
   next(err);
 };
 
-console.log('✅ WhatsApp routes loaded');
+console.log('WhatsApp routes loaded');
 
-/* =====================================================
-   SEND DESIGN (Frontend → WhatsApp)
-===================================================== */
+
+
+
 router.post(
   '/send-design',
   upload.single('image'),
-  multerErrorHandler, // ✅ ADDED
+  multerErrorHandler,
   async (req: Request, res: Response) => {
     try {
       const { approver, recipientPhone } = req.body;
@@ -75,7 +74,7 @@ router.post(
 
       return res.json({ success: true });
     } catch (err) {
-      console.error('❌ Send design error:', err);
+      console.error('Send design error:', err);
       return res.status(500).json({
         success: false,
         error: 'Internal server error',
@@ -84,9 +83,8 @@ router.post(
   }
 );
 
-/* =====================================================
-   WEBHOOK (WhatsApp → DB) ✅ UNTOUCHED
-===================================================== */
+
+
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const entry = req.body.entry?.[0];
@@ -122,25 +120,23 @@ router.post('/webhook', async (req: Request, res: Response) => {
         },
       });
 
-      console.log('✅ Message saved:', message.id);
     } catch (dbErr: any) {
       if (dbErr.code === 'P2002') {
-        console.log('⚠️ Duplicate message ignored:', message.id);
+        console.log('Duplicate message ignored:', message.id);
       } else {
-        console.error('❌ Prisma error:', dbErr);
+        console.error('Prisma error:', dbErr);
       }
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Webhook fatal error:', err);
+    console.error('Webhook fatal error:', err);
     res.sendStatus(500);
   }
 });
 
-/* =====================================================
-   INBOX (Frontend → DB) ✅ UNTOUCHED
-===================================================== */
+
+
 router.get('/inbox', async (_req: Request, res: Response) => {
   const messages = await prisma.whatsAppMessage.findMany({
     orderBy: { createdAt: 'desc' },
