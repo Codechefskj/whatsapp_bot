@@ -8,23 +8,35 @@ export class WhatsAppService {
   async sendTextMessage(to: string, text: string) {
     const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
 
-    const response = await axios.post(
-      url,
-      {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'text',
-        text: { body: text },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${config.meta.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    console.log('📤 Sending WhatsApp message...');
+    console.log('👉 To:', to);
+    console.log('👉 Text:', text);
 
-    return response.data;
+    try {
+      const response = await axios.post(
+        url,
+        {
+          messaging_product: 'whatsapp',
+          to,
+          type: 'text',
+          text: { body: text },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${config.meta.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      console.log('✅ Message sent successfully:', response.data);
+      return response.data;
+
+    } catch (error: any) {
+      console.error('❌ WhatsApp API Error:');
+      console.error(error.response?.data || error.message);
+      throw error;
+    }
   }
 
   async uploadMedia(imageBuffer: Buffer, filename: string = 'design.png') {

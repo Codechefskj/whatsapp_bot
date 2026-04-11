@@ -1,147 +1,112 @@
-import { Router, Request, Response, NextFunction } from 'express';
-import multer from 'multer';
+import { Router, Request, Response } from 'express';
 import { WhatsAppService } from '../services/whatsapp.service';
+import { AIService } from '../services/ai.service';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
 const whatsappService = new WhatsAppService();
+const aiService = new AIService();
 
+console.log('✅ WhatsApp routes loaded');
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 20 * 1024 * 1024, 
-  },
-});
-
-const multerErrorHandler = (
-  err: any,
-  _req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({
-        success: false,
-        error: 'Image too large. Max allowed size is 20MB.',
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      error: err.message,
-    });
-  }
-
-  next(err);
-};
-
-console.log('WhatsApp routes loaded');
-
-
-
-
-router.post(
-  '/send-design',
-  upload.single('image'),
-  multerErrorHandler,
-  async (req: Request, res: Response) => {
-    try {
-      const { approver, recipientPhone } = req.body;
-      const imageBuffer = req.file?.buffer;
-
-      if (!imageBuffer || !recipientPhone) {
-        return res.status(400).json({
-          success: false,
-          error: 'Missing image or recipient phone',
-        });
-      }
-
-      const result = await whatsappService.sendDesignApproval(
-        recipientPhone,
-        imageBuffer,
-        approver
-      );
-
-      await prisma.whatsAppMessage.create({
-        data: {
-          from: 'system',
-          text: `Design sent by ${approver}`,
-          messageId: result.messageId,
-        },
-      });
-
-      return res.json({ success: true });
-    } catch (err) {
-      console.error('Send design error:', err);
-      return res.status(500).json({
-        success: false,
-        error: 'Internal server error',
-      });
-    }
-  }
-);
-
-
-
+// ============================
+// 🔥 WEBHOOK (RECEIVE MESSAGE)
+// ============================
 router.post('/webhook', async (req: Request, res: Response) => {
+  console.log('📩 WhatsApp webhook POST received');
+  res.sendStatus(200);
+
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
-    const value = change?.value;
+    const message = change?.value?.messages?.[0];
 
-    // Ignore status updates
-    if (value?.statuses) {
-      return res.sendStatus(200);
+    if (!message || !message.text) {
+      console.log('ℹ️ No user message (status/delivery event)');
+      return;
     }
 
-    const message = value?.messages?.[0];
-    if (!message) {
-      return res.sendStatus(200);
+    const from = message.from;
+    const textBody = message.text.body;
+    const text = textBody.toLowerCase().trim();
+    const messageId = message.id;
+
+    console.log(`📨 From: ${from} | Text: ${textBody}`);
+
+    await prisma.whatsAppMessage.create({
+      data: { from, text: textBody, messageId },
+    });
+
+    console.log('💾 Saved message to DB');
+
+    let reply = '';
+
+    if (text === 'help') {
+      reply = '👋 Commands:\n• help\n• menu\n• create';
+    } else if (text === 'menu') {
+      reply = '📋 Menu:\n• create\n• approvals';
+    } else if (text === 'create') {
+      reply = '🎨 Choose format:\n• Story\n• Post\n• Banner';
+    } else {
+      console.log('🤖 Calling AI...');
+      reply = await aiService.getReply(textBody);
     }
 
-    let text = '[unsupported]';
+    console.log('🤖 Reply:', reply);
 
-    if (message.type === 'text') {
-      text = message.text.body;
-    }
+    await whatsappService.sendTextMessage(from, reply);
+    console.log('✅ Reply sent');
 
-    if (message.type === 'image') {
-      text = message.image.caption || '[image]';
-    }
-
-    try {
-      await prisma.whatsAppMessage.create({
-        data: {
-          from: message.from,
-          text,
-          messageId: message.id,
-        },
-      });
-
-    } catch (dbErr: any) {
-      if (dbErr.code === 'P2002') {
-        console.log('Duplicate message ignored:', message.id);
-      } else {
-        console.error('Prisma error:', dbErr);
-      }
-    }
-
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('Webhook fatal error:', err);
-    res.sendStatus(500);
+  } catch (error: any) {
+    console.error('❌ Webhook error:', error.response?.data || error.message);
   }
 });
 
+// ============================
+// 🚀 TEST SEND API (POSTMAN)
+// ============================
+router.post('/send-test', async (req: Request, res: Response) => {
+  try {
+    const { to, text } = req.body;
 
+    if (!to || !text) {
+      return res.status(400).json({ error: 'to and text are required' });
+    }
 
-router.get('/inbox', async (_req: Request, res: Response) => {
+    console.log('🧪 Sending test message...');
+    const result = await whatsappService.sendTextMessage(to, text);
+    res.json({ success: true, result });
+
+  } catch (error: any) {
+    console.error('❌ Send test error:', error.response?.data || error.message);
+    res.status(500).json({ error: error.response?.data || error.message });
+  }
+});
+
+// ============================
+// 📊 TEST DB
+// ============================
+router.get('/test-db', async (_req: Request, res: Response) => {
+  const count = await prisma.whatsAppMessage.count();
   const messages = await prisma.whatsAppMessage.findMany({
+    take: 10,
     orderBy: { createdAt: 'desc' },
   });
-  res.json(messages);
+  res.json({ count, messages });
+});
+
+// ============================
+// 📥 INBOX API
+// ============================
+router.get('/inbox', async (_req: Request, res: Response) => {
+  try {
+    const messages = await prisma.whatsAppMessage.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(messages);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch inbox' });
+  }
 });
 
 export default router;
