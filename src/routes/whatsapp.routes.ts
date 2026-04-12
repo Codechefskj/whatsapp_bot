@@ -49,7 +49,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
       reply = '🎨 Choose format:\n• Story\n• Post\n• Banner';
     } else {
       console.log('🤖 Calling AI...');
-      reply = await aiService.getReply(textBody);
+      try {
+        reply = await aiService.getReply(textBody);
+      } catch (aiError) {
+        reply = '⚠️ You have reached the free limit. Please try again later.';
+      }
     }
 
     console.log('🤖 Reply:', reply);
