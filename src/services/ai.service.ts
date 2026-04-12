@@ -8,10 +8,10 @@ export class AIService {
 
       const response = await axios.post(
         config.ai.apiUrl,
-        { question: userMessage },
+        { message: userMessage },
         {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 60000, // 60 seconds — wait for Render cold start
+          timeout: 60000,
         }
       );
 

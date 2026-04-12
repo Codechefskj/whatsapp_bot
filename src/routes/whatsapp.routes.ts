@@ -113,4 +113,14 @@ router.get('/inbox', async (_req: Request, res: Response) => {
   }
 });
 
+router.get('/test-ai', async (_req: Request, res: Response) => {
+  try {
+    const reply = await aiService.getReply('test question');
+    res.json({ success: true, reply });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 export default router;
