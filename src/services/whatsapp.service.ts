@@ -1,9 +1,26 @@
 import axios from 'axios';
 import FormData from 'form-data';
 import { config } from '../config';
+import { prisma } from '../lib/prisma';
 
 export class WhatsAppService {
   private baseUrl = 'https://graph.facebook.com/v21.0';
+
+  private get authHeaders() {
+    return { Authorization: `Bearer ${config.meta.accessToken}` };
+  }
+
+  /** Save a message WE sent. A DB problem must never stop the WhatsApp send, so errors are only logged. */
+  private async saveOutgoing(to: string, text: string, messageId?: string) {
+    if (!messageId) return;
+    try {
+      await prisma.whatsAppMessage.create({
+        data: { from: config.meta.phoneNumberId, to, text, direction: 'OUT', messageId },
+      });
+    } catch (e: any) {
+      console.error('⚠️ Could not save outgoing message:', e.message);
+    }
+  }
 
   async sendTextMessage(to: string, text: string) {
     const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
@@ -21,17 +38,12 @@ export class WhatsAppService {
           type: 'text',
           text: { body: text },
         },
-        {
-          headers: {
-            Authorization: `Bearer ${config.meta.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
+        { headers: { ...this.authHeaders, 'Content-Type': 'application/json' } }
       );
 
       console.log('✅ Message sent successfully:', response.data);
+      await this.saveOutgoing(to, text, response.data?.messages?.[0]?.id);
       return response.data;
-
     } catch (error: any) {
       console.error('❌ WhatsApp API Error:');
       console.error(error.response?.data || error.message);
@@ -39,70 +51,59 @@ export class WhatsAppService {
     }
   }
 
-  async uploadMedia(imageBuffer: Buffer, filename: string = 'design.png') {
+  /** Upload an image to WhatsApp and return its media id. WhatsApp accepts PNG/JPEG up to 5 MB. */
+  async uploadMedia(buffer: Buffer, filename = 'design.png', mimeType = 'image/png'): Promise<string> {
     const url = `${this.baseUrl}/${config.meta.phoneNumberId}/media`;
 
     const formData = new FormData();
-    formData.append('file', imageBuffer, {
-      filename,
-      contentType: 'image/png',
-    });
-    formData.append('type', 'image/png');
+    formData.append('file', buffer, { filename, contentType: mimeType });
+    formData.append('type', mimeType);
     formData.append('messaging_product', 'whatsapp');
 
     const response = await axios.post(url, formData, {
-      headers: {
-        Authorization: `Bearer ${config.meta.accessToken}`,
-        ...formData.getHeaders(),
-      },
+      headers: { ...this.authHeaders, ...formData.getHeaders() },
     });
 
     return response.data.id;
   }
 
-  async sendImageMessage(to: string, mediaId: string, caption?: string) {
+  /**
+   * Image + two reply buttons ("Approved" / "Not approved").
+   * Button ids carry the design id so the click can be matched later: "approve:12" / "reject:12".
+   * Button titles are limited to 20 characters.
+   */
+  async sendDesignWithButtons(to: string, mediaId: string, designId: number, bodyText?: string) {
     const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
 
-    const payload: any = {
+    const payload = {
       messaging_product: 'whatsapp',
       to,
-      type: 'image',
-      image: {
-        id: mediaId,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        header: { type: 'image', image: { id: mediaId } },
+        body: { text: bodyText || 'Here is your design 🎨\nDo you approve it?' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `approve:${designId}`, title: '✅ Approved' } },
+            { type: 'reply', reply: { id: `reject:${designId}`, title: '❌ Not approved' } },
+          ],
+        },
       },
     };
 
-    if (caption) {
-      payload.image.caption = caption;
-    }
-
-    const response = await axios.post(url, payload, {
-      headers: {
-        Authorization: `Bearer ${config.meta.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    return response.data;
-  }
-
-  async sendDesignApproval(to: string, imageBuffer: Buffer, approverName: string) {
     try {
-      console.log('📤 Uploading image to WhatsApp...');
-      const mediaId = await this.uploadMedia(imageBuffer);
-      
-      console.log('✅ Media uploaded, ID:', mediaId);
-      
-      const caption = `🎨 Design Approval Request\n\nFrom: ${approverName}\n\nPlease review and approve this design.\n\nReply:\n✅ "approve" to accept\n❌ "reject" to decline`;
-      
-      console.log('📨 Sending message...');
-      const result = await this.sendImageMessage(to, mediaId, caption);
-      
-      console.log('✅ Message sent successfully');
-      return { success: true, mediaId, messageId: result.messages[0].id };
-      
+      const response = await axios.post(url, payload, {
+        headers: { ...this.authHeaders, 'Content-Type': 'application/json' },
+      });
+      await this.saveOutgoing(
+        to,
+        `[design #${designId} + buttons] ${payload.interactive.body.text}`,
+        response.data?.messages?.[0]?.id
+      );
+      return response.data;
     } catch (error: any) {
-      console.error('❌ Failed to send design:', error.response?.data || error.message);
+      console.error('❌ Failed to send design buttons:', error.response?.data || error.message);
       throw error;
     }
   }

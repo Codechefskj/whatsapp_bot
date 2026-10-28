@@ -38,7 +38,7 @@ app.get('/whatsapp/webhook', (req: Request, res: Response) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === 'bestsecretkeytoverify') {
+  if (mode === 'subscribe' && token === config.meta.webhookVerifyToken) {
     return res.status(200).send(challenge);
   }
 
