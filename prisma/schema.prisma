@@ -7,13 +7,42 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ===================== WHATSAPP MESSAGE =====================
+enum MessageDirection {
+  IN // user -> us
+  OUT // us -> user
+}
+
 model WhatsAppMessage {
-  id        String   @id @default(cuid())
-  from      String
-  text      String   // Make it required, not nullable
-  messageId String   @unique
-  createdAt DateTime @default(now())
+  id        Int              @id @default(autoincrement())
+  from      String // IN: the user's number | OUT: our WhatsApp phone number id
+  to        String? // OUT: the user's number | IN: empty
+  text      String
+  direction MessageDirection @default(IN)
+  messageId String           @unique
+  createdAt DateTime         @default(now())
 
   @@index([from])
-  @@index([messageId])
+  @@index([to])
+}
+
+// ===================== DESIGN APPROVAL =====================
+enum DesignStatus {
+  PENDING // image + buttons sent, waiting for a click
+  APPROVED // user tapped "Approved"
+  AWAITING_FEEDBACK // user tapped "Not approved", waiting for their comment
+  REJECTED // comment received
+}
+
+model Design {
+  id          Int          @id @default(autoincrement())
+  to          String // user's WhatsApp number (digits only)
+  mediaId     String? // WhatsApp media id of the image we sent
+  status      DesignStatus @default(PENDING)
+  feedback    String? // the user's comment after "Not approved"
+  externalRef String? // your own design/job id from the other system
+  createdAt   DateTime     @default(now())
+  respondedAt DateTime?
+
+  @@index([to, status])
 }

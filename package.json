@@ -1,24 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "http-server",
+  "name": "whatsapp-bot-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "WhatsApp Bot Backend",
   "main": "dist/index.js",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/codermanoj2023/10-nodejs-typescript-project-with-tsup.git"
-  },
   "scripts": {
     "build": "tsup src/index.ts --format cjs --outDir dist",
     "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "tsc --noEmit && TIMING=1 eslint \"src/**/*.ts*\"",
     "start": "node dist/index.js",
-    "test": "jest --detectOpenHandles"
+    "postinstall": "prisma generate"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^6.19.1",

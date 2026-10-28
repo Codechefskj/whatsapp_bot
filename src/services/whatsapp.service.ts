@@ -1,112 +1,110 @@
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
+import FormData from 'form-data';
 import { config } from '../config';
-
-interface WhatsAppMessageResponse {
-  messaging_product: string;
-  contacts: Array<{ input: string; wa_id: string }>;
-  messages: Array<{ id: string }>;
-}
-
-interface WhatsAppError {
-  error: {
-    message: string;
-    type: string;
-    code: number;
-    error_subcode?: number;
-    fbtrace_id: string;
-  };
-}
+import { prisma } from '../lib/prisma';
 
 export class WhatsAppService {
   private baseUrl = 'https://graph.facebook.com/v21.0';
-  private readonly maxRetries = 3;
-  private readonly retryDelay = 1000; // ms
 
-  async sendTextMessage(to: string, text: string): Promise<WhatsAppMessageResponse> {
-    return this.executeWithRetry(async () => {
-      const response = await axios.post<WhatsAppMessageResponse>(
-        `${this.baseUrl}/${config.meta.phoneNumberId}/messages`,
+  private get authHeaders() {
+    return { Authorization: `Bearer ${config.meta.accessToken}` };
+  }
+
+  /** Save a message WE sent. A DB problem must never stop the WhatsApp send, so errors are only logged. */
+  private async saveOutgoing(to: string, text: string, messageId?: string) {
+    if (!messageId) return;
+    try {
+      await prisma.whatsAppMessage.create({
+        data: { from: config.meta.phoneNumberId, to, text, direction: 'OUT', messageId },
+      });
+    } catch (e: any) {
+      console.error('⚠️ Could not save outgoing message:', e.message);
+    }
+  }
+
+  async sendTextMessage(to: string, text: string) {
+    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
+
+    console.log('📤 Sending WhatsApp message...');
+    console.log('👉 To:', to);
+    console.log('👉 Text:', text);
+
+    try {
+      const response = await axios.post(
+        url,
         {
           messaging_product: 'whatsapp',
           to,
           type: 'text',
-          text: { body: text }
+          text: { body: text },
         },
-        {
-          headers: {
-            Authorization: `Bearer ${config.meta.accessToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
+        { headers: { ...this.authHeaders, 'Content-Type': 'application/json' } }
       );
 
+      console.log('✅ Message sent successfully:', response.data);
+      await this.saveOutgoing(to, text, response.data?.messages?.[0]?.id);
       return response.data;
+    } catch (error: any) {
+      console.error('❌ WhatsApp API Error:');
+      console.error(error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /** Upload an image to WhatsApp and return its media id. WhatsApp accepts PNG/JPEG up to 5 MB. */
+  async uploadMedia(buffer: Buffer, filename = 'design.png', mimeType = 'image/png'): Promise<string> {
+    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/media`;
+
+    const formData = new FormData();
+    formData.append('file', buffer, { filename, contentType: mimeType });
+    formData.append('type', mimeType);
+    formData.append('messaging_product', 'whatsapp');
+
+    const response = await axios.post(url, formData, {
+      headers: { ...this.authHeaders, ...formData.getHeaders() },
     });
+
+    return response.data.id;
   }
 
-  async markAsRead(messageId: string): Promise<void> {
-    try {
-      await axios.post(
-        `${this.baseUrl}/${config.meta.phoneNumberId}/messages`,
-        {
-          messaging_product: 'whatsapp',
-          status: 'read',
-          message_id: messageId
+  /**
+   * Image + two reply buttons ("Approved" / "Not approved").
+   * Button ids carry the design id so the click can be matched later: "approve:12" / "reject:12".
+   * Button titles are limited to 20 characters.
+   */
+  async sendDesignWithButtons(to: string, mediaId: string, designId: number, bodyText?: string) {
+    const url = `${this.baseUrl}/${config.meta.phoneNumberId}/messages`;
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        header: { type: 'image', image: { id: mediaId } },
+        body: { text: bodyText || 'Here is your design 🎨\nDo you approve it?' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `approve:${designId}`, title: '✅ Approved' } },
+            { type: 'reply', reply: { id: `reject:${designId}`, title: '❌ Not approved' } },
+          ],
         },
-        {
-          headers: {
-            Authorization: `Bearer ${config.meta.accessToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-    } catch (error) {
-      // Mark as read failures shouldn't break the flow
-      console.error('Failed to mark message as read:', this.formatError(error));
-    }
-  }
+      },
+    };
 
-  private async executeWithRetry<T>(
-    fn: () => Promise<T>,
-    retries = this.maxRetries
-  ): Promise<T> {
     try {
-      return await fn();
-    } catch (error) {
-      if (retries > 0 && this.isRetryable(error)) {
-        await this.delay(this.retryDelay);
-        return this.executeWithRetry(fn, retries - 1);
-      }
-      throw this.formatError(error);
-    }
-  }
-
-  private isRetryable(error: unknown): boolean {
-    if (!axios.isAxiosError(error)) return false;
-    
-    // Retry on network errors or 5xx server errors
-    return !error.response || (error.response.status >= 500 && error.response.status < 600);
-  }
-
-  private formatError(error: unknown): Error {
-    if (axios.isAxiosError(error)) {
-      const whatsappError = error.response?.data as WhatsAppError | undefined;
-      
-      if (whatsappError?.error) {
-        return new Error(
-          `WhatsApp API Error: ${whatsappError.error.message} (Code: ${whatsappError.error.code})`
-        );
-      }
-      
-      return new Error(
-        `WhatsApp API request failed: ${error.message}`
+      const response = await axios.post(url, payload, {
+        headers: { ...this.authHeaders, 'Content-Type': 'application/json' },
+      });
+      await this.saveOutgoing(
+        to,
+        `[design #${designId} + buttons] ${payload.interactive.body.text}`,
+        response.data?.messages?.[0]?.id
       );
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Failed to send design buttons:', error.response?.data || error.message);
+      throw error;
     }
-    
-    return error instanceof Error ? error : new Error('Unknown error occurred');
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
