@@ -1,29 +1,42 @@
-/*
-  Warnings:
 
-  - You are about to drop the `Post` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `User` table. If the table is not empty, all the data it contains will be lost.
+-- CreateEnum
+CREATE TYPE "MessageDirection" AS ENUM ('IN', 'OUT');
 
-*/
--- DropForeignKey
-ALTER TABLE "Post" DROP CONSTRAINT "Post_authorId_fkey";
+-- CreateEnum
+CREATE TYPE "DesignStatus" AS ENUM (
+    'PENDING',
+    'APPROVED',
+    'AWAITING_FEEDBACK',
+    'REJECTED'
+);
 
--- DropTable
-DROP TABLE "Post";
-
--- DropTable
-DROP TABLE "User";
+-- AlterTable
+ALTER TABLE "WhatsAppMessage"
+ADD COLUMN "direction" "MessageDirection" NOT NULL DEFAULT 'IN',
+ADD COLUMN "to" TEXT;
 
 -- CreateTable
-CREATE TABLE "WhatsAppMessage" (
+CREATE TABLE "Design" (
     "id" SERIAL NOT NULL,
-    "from" TEXT NOT NULL,
-    "text" TEXT NOT NULL,
-    "messageId" TEXT NOT NULL,
+    "to" TEXT NOT NULL,
+    "mediaId" TEXT,
+    "status" "DesignStatus" NOT NULL DEFAULT 'PENDING',
+    "feedback" TEXT,
+    "externalRef" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "respondedAt" TIMESTAMP(3),
 
-    CONSTRAINT "WhatsAppMessage_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Design_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "WhatsAppMessage_messageId_key" ON "WhatsAppMessage"("messageId");
+CREATE INDEX "Design_to_status_idx"
+ON "Design"("to", "status");
+
+-- CreateIndex
+CREATE INDEX "WhatsAppMessage_from_idx"
+ON "WhatsAppMessage"("from");
+
+-- CreateIndex
+CREATE INDEX "WhatsAppMessage_to_idx"
+ON "WhatsAppMessage"("to");
