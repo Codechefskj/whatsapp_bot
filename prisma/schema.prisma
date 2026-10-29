@@ -41,8 +41,43 @@ model Design {
   status      DesignStatus @default(PENDING)
   feedback    String? // the user's comment after "Not approved"
   externalRef String? // your own design/job id from the other system
+  handoffKey  String?      @unique // Agentic job + revision idempotency key
   createdAt   DateTime     @default(now())
   respondedAt DateTime?
 
   @@index([to, status])
+}
+
+enum IntegrationJobStatus {
+  PENDING
+  PROCESSING
+  RETRY
+  COMPLETED
+  FAILED
+}
+
+model IntegrationJob {
+  id          Int                  @id @default(autoincrement())
+  kind        String
+  dedupeKey   String               @unique
+  payload     Json
+  status      IntegrationJobStatus @default(PENDING)
+  attempts    Int                  @default(0)
+  runAfter    DateTime             @default(now())
+  lastError   String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([status, runAfter])
+}
+
+model ConversationSession {
+  id                Int      @id @default(autoincrement())
+  phone             String   @unique
+  productDraftId    String?
+  pendingQuestionId String?
+  designJobId       String?
+  status            String   @default("COLLECTING")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }

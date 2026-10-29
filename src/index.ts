@@ -2,12 +2,15 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import whatsappRoutes from './routes/whatsapp.routes';
 import { config } from './config';
+import { startIntegrationWorker } from './services/integration-worker';
 
 const app = express();
 
 /* ===== Middlewares ===== */
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req: Request, _res, buffer) => { (req as any).rawBody = Buffer.from(buffer); },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -61,4 +64,5 @@ app.use((_req: Request, res: Response) => {
 /* ===== Start Server ===== */
 app.listen(config.port, () => {
   console.log(`🚀 Server running on port ${config.port}`);
+  void startIntegrationWorker().catch(error => console.error('❌ Could not start integration worker:', error));
 });

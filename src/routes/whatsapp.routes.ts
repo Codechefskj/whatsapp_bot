@@ -5,6 +5,8 @@ import { AIService } from '../services/ai.service';
 import { DesignService } from '../services/Design.service';
 import { prisma } from '../lib/prisma';
 import { config } from '../config';
+import { enqueueIntegrationJob } from '../services/integration-jobs.service';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 const router = Router();
 const whatsappService = new WhatsAppService();
@@ -23,8 +25,28 @@ console.log('✅ WhatsApp routes loaded');
  * No new env variable needed: send the header  x-api-key: <value of your META_VERIFY_TOKEN>
  */
 function requireApiKey(req: Request, res: Response, next: NextFunction) {
-  if (req.header('x-api-key') !== config.meta.webhookVerifyToken) {
+  if (req.header('x-api-key') !== config.agentic.internalToken) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+function requireAgenticBearer(req: Request, res: Response, next: NextFunction) {
+  if (req.header('authorization') !== `Bearer ${config.agentic.internalToken}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+function verifyMetaSignature(req: Request, res: Response, next: NextFunction) {
+  const signature = req.header('x-hub-signature-256');
+  const rawBody: Buffer | undefined = (req as any).rawBody;
+  if (!signature || !rawBody) return res.status(401).json({ error: 'Missing Meta webhook signature.' });
+  const expected = `sha256=${createHmac('sha256', config.meta.appSecret).update(rawBody).digest('hex')}`;
+  const left = Buffer.from(signature);
+  const right = Buffer.from(expected);
+  if (left.length !== right.length || !timingSafeEqual(left, right)) {
+    return res.status(401).json({ error: 'Invalid Meta webhook signature.' });
   }
   next();
 }
@@ -43,7 +65,7 @@ async function saveIncoming(from: string, text: string, messageId: string): Prom
 // ============================
 // 🔥 WEBHOOK (RECEIVE MESSAGE)
 // ============================
-router.post('/webhook', async (req: Request, res: Response) => {
+router.post('/webhook', verifyMetaSignature, async (req: Request, res: Response) => {
   console.log('📩 WhatsApp webhook POST received');
   res.sendStatus(200);
 
@@ -63,35 +85,54 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const { id: buttonId, title } = message.interactive.button_reply;
       console.log(`🔘 Button from ${from}: ${buttonId} (${title})`);
 
-      if (!(await saveIncoming(from, `[button] ${title}`, messageId))) {
-        console.log('♻️ Duplicate delivery, skipping');
-        return;
-      }
-      await designService.handleButtonReply(from, buttonId);
+      const inserted = await saveIncoming(from, `[button] ${title}`, messageId);
+      if (!inserted) console.log('♻️ Duplicate button delivery; replaying the idempotent handler');
+      await designService.handleButtonReply(from, buttonId, messageId, !inserted);
       return;
     }
 
-    // ---------- 2) Anything else that is not plain text ----------
+    // ---------- 2) Product image ----------
+    if (message.type === 'image' && message.image?.id) {
+      const caption = String(message.image.caption || '').trim();
+      const inserted = await saveIncoming(from, caption || '[image]', messageId);
+      if (!inserted) console.log('♻️ Duplicate image delivery; ensuring its durable job exists');
+      await enqueueIntegrationJob('INBOUND_MESSAGE', `meta:${messageId}`, {
+        from,
+        messageId,
+        text: caption,
+        mediaId: message.image.id,
+        mimeType: message.image.mime_type || 'image/jpeg',
+      });
+      console.log('💾 Queued inbound product image for Agentic');
+      return;
+    }
+
+    // ---------- 3) Anything else that is not plain text ----------
     if (message.type !== 'text' || !message.text) {
       console.log(`ℹ️ Unsupported message type: ${message.type}`);
+      await whatsappService.sendTextMessage(from, 'For now, please send a product photo with a caption or a text product brief.');
       return;
     }
 
-    // ---------- 3) Text ----------
+    // ---------- 4) Text ----------
     const textBody: string = message.text.body;
     const text = textBody.toLowerCase().trim();
     console.log(`📨 From: ${from} | Text: ${textBody}`);
 
-    if (!(await saveIncoming(from, textBody, messageId))) {
-      console.log('♻️ Duplicate delivery, skipping');
-      return;
-    }
+    const inserted = await saveIncoming(from, textBody, messageId);
+    if (!inserted) console.log('♻️ Duplicate text delivery; checking durable integration state');
     console.log('💾 Saved message to DB');
 
     // 3a) Is this the comment for a design they just marked "Not approved"?
-    if (await designService.handleFeedback(from, textBody)) {
+    if (await designService.handleFeedback(from, textBody, messageId)) {
       console.log('📝 Saved as design feedback');
       return;
+    }
+    if (!inserted) {
+      const existing = await prisma.integrationJob.findFirst({
+        where: { dedupeKey: { in: [`meta:${messageId}`, `agentic:edit:${messageId}`] } },
+      });
+      if (existing) return;
     }
 
     // 3b) Normal text flow
@@ -104,15 +145,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
     } else if (text === 'create') {
       reply = '🎨 Choose format:\n• Story\n• Post\n• Banner';
     } else {
-      // This is where the user's design request goes.
-      // Hand textBody to your design system here; when the design is ready, call
-      // designService.sendForApproval(...) or POST /whatsapp/designs/send.
-      console.log('🤖 Calling AI...');
-      try {
-        reply = await aiService.getReply(textBody);
-      } catch (aiError) {
-        reply = '⚠️ You have reached the free limit. Please try again later.';
-      }
+      await enqueueIntegrationJob('INBOUND_MESSAGE', `meta:${messageId}`, { from, messageId, text: textBody });
+      console.log('💾 Queued inbound text for Agentic');
+      return;
     }
 
     console.log('🤖 Reply:', reply);
@@ -152,6 +187,42 @@ router.post('/designs/send', requireApiKey, upload.single('image'), async (req: 
   } catch (error: any) {
     console.error('❌ Send design error:', error.response?.data || error.message);
     res.status(500).json({ error: error.response?.data || error.message });
+  }
+});
+
+// Agentic's native preview handoff. It sends metadata plus preview_1 using
+// INTERNAL_SERVICE_TOKEN and an idempotency-key header.
+router.post('/integrations/agentic/previews', requireAgenticBearer, upload.any(), async (req: Request, res: Response) => {
+  try {
+    const metadata = JSON.parse(String(req.body.metadata || '{}'));
+    if (metadata.event !== 'design.preview_ready') {
+      return res.status(400).json({ error: 'Only image design previews are accepted by this endpoint.' });
+    }
+    const to = String(metadata.merchantId || '').replace(/\D/g, '');
+    const expectedPart = metadata.designs?.[0]?.filePart || 'preview_1';
+    const file = (req.files as Express.Multer.File[] || []).find(item => item.fieldname === expectedPart);
+    if (!to || !metadata.designJobId || !file) {
+      return res.status(400).json({ error: 'metadata.merchantId, metadata.designJobId, and preview_1 are required.' });
+    }
+    if (!ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
+      return res.status(400).json({ error: 'Preview must be PNG or JPEG.' });
+    }
+    const handoffKey = req.header('idempotency-key') || `preview:${metadata.designJobId}:${metadata.revisionId}`;
+    const design = await designService.sendForApproval({
+      to,
+      image: file.buffer,
+      mimeType: file.mimetype,
+      filename: file.originalname,
+      externalRef: metadata.designJobId,
+      handoffKey,
+      caption: metadata.revisionNumber > 1
+        ? `Your revised design (version ${metadata.revisionNumber}) is ready. Do you approve it?`
+        : 'Your design is ready. Do you approve it?',
+    });
+    res.json({ success: true, designId: design.id, status: design.status, handoffKey });
+  } catch (error: any) {
+    console.error('❌ Agentic preview handoff error:', error.response?.data || error.message);
+    res.status(400).json({ error: error.response?.data || error.message });
   }
 });
 
