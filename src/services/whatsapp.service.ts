@@ -67,6 +67,24 @@ export class WhatsAppService {
     return response.data.id;
   }
 
+  /** Download media referenced by an inbound Meta webhook. */
+  async downloadMedia(mediaId: string): Promise<{ buffer: Buffer; mimeType: string; filename: string }> {
+    const metadata = await axios.get(`${this.baseUrl}/${encodeURIComponent(mediaId)}`, {
+      headers: this.authHeaders,
+      timeout: 30_000,
+    });
+    if (!metadata.data?.url) throw new Error('Meta media lookup returned no download URL.');
+    const response = await axios.get(metadata.data.url, {
+      headers: this.authHeaders,
+      responseType: 'arraybuffer',
+      timeout: 60_000,
+      maxContentLength: 15 * 1024 * 1024,
+    });
+    const mimeType = String(metadata.data.mime_type || response.headers['content-type'] || 'application/octet-stream').split(';')[0];
+    const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+    return { buffer: Buffer.from(response.data), mimeType, filename: `whatsapp-${mediaId}.${extension}` };
+  }
+
   /**
    * Image + two reply buttons ("Approved" / "Not approved").
    * Button ids carry the design id so the click can be matched later: "approve:12" / "reject:12".
